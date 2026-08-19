@@ -1,4 +1,8 @@
 #include "systemcalls.h"
+#include<stdlib.h>  //for system() and EXIT failure
+#include<unistd.h>  //for fork(), execv(), dup2(), and close()
+#include<sys/wait.h>  //for waitpid(), WIFEXITED and WEXITSTATUS
+#include<fcntl.h>   //for open(), O_CREAT, O_TRUNC and O_WRONLY
 
 /**
  * @param cmd the command to execute with system()
@@ -7,6 +11,8 @@
  *   either in invocation of the system() call, or if a non-zero return
  *   value was returned by the command issued in @param cmd.
 */
+
+
 bool do_system(const char *cmd)
 {
 
@@ -16,7 +22,11 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
+	int result = system (cmd);
+	if (result != 0)
+	{
+		return false;
+	}
     return true;
 }
 
@@ -47,7 +57,35 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    fflush(stdout);
+    pid_t pid = fork();
+    if(pid == -1)
+    {
+    	va_end(args);
+    	return false;
+    }
+    else if(pid == 0)
+    {
+    	execv(command[0], command);
+    	exit (EXIT_FAILURE);
+    }
+    else 
+    {
+    	int status;
+    	if(waitpid(pid, &status, 0)== -1)
+    	{
+    		return false;
+    	}
+    	
+    	if(WIFEXITED(status) && WEXITSTATUS(status) == 0)
+    	{
+    		return true;
+    	}
+    	else
+    	{	
+    		return false;
+    	}
+    }
 
 /*
  * TODO:
@@ -61,7 +99,6 @@ bool do_exec(int count, ...)
 
     va_end(args);
 
-    return true;
 }
 
 /**
@@ -82,7 +119,59 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+   // 1. Open the file (with write access, truncate, and create flags)
+    int fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+    if (fd < 0) {
+        // ERROR: Failed to open the file
+        return false;
+    }
+
+    // 2. Flush the print queue
+    fflush(stdout);
+
+    // 3. Clone the process
+    pid_t pid = fork();
+
+    if (pid == -1) {
+        // ERROR: Clone failed
+        close(fd);
+        return false;
+    } 
+    else if (pid == 0) {
+        // CHILD PROCESS
+        // 4. The Wiring: Unplug the screen (1) and plug in the file (fd)
+        if (dup2(fd, 1) < 0) {
+            close(fd);
+            exit(EXIT_FAILURE); 
+        }
+        
+        // We don't need this extra handle anymore now that dup2 did its job
+        close(fd); 
+
+        // 5. Replace our brain with the new command
+        execv(command[0], command);
+        
+        // If we reach this line, execv() failed!
+        exit(EXIT_FAILURE);
+    } 
+    else {
+        // PARENT PROCESS
+        // The parent doesn't need to write to the file, so close its copy
+        close(fd);
+        
+        // Wait for the child to finish
+        int status;
+        if (waitpid(pid, &status, 0) == -1) {
+            return false;
+        }
+
+        // Check if the child exited normally AND returned a 0 (success)
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return true;
+        } else {
+            return false;
+        }
+    }
 
 
 /*
