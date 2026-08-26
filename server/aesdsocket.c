@@ -166,8 +166,10 @@ void send_file_to_client(int client_fd)
 			}
 			sent +=s;
 		}
-		close(read_fd);
+		
 	}
+	
+	close(read_fd);
 }
 
 
