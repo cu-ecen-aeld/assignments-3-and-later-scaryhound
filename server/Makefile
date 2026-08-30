@@ -1,7 +1,6 @@
-
 CC ?= $(CROSS_COMPILE)gcc
-CFLAGS ?= -g -Wall -Werror
-LDFLAGS ?= 
+CFLAGS ?= -g -Wall -Werror -pthread
+LDFLAGS ?= -pthread
 TARGET = aesdsocket
 
 all: default
