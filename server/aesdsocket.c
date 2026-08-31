@@ -75,23 +75,24 @@ int init_server_socket(void) {
         return -1;
     }
 
-    // --- NEW GITHUB ACTIONS PORT-CLEARING FIX ---
-    // Force-kill any background service (like GitHub's PHP-FPM) 
-    // that is hogging port 9000 in the cloud.
-    system("fuser -k -9 9000/tcp 2>/dev/null || true");
-    // --------------------------------------------
-
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
     
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        syslog(LOG_ERR, "Failed to bind socket: %s", strerror(errno));
-        close(server_fd);
-        return -1;
+
+    int retries = 5;
+    while (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+        if (retries == 0) {
+            syslog(LOG_ERR, "Failed to bind socket: %s", strerror(errno));
+            close(server_fd);
+            return -1;
+        }
+        retries--;
+        sleep(1); 
     }
+
     
     if (listen(server_fd, 5) == -1) {
         close(server_fd);
