@@ -158,6 +158,19 @@ void *handle_client(void *thread_param) {
                 append_data_to_file(packet_buf, packet_size);
                 send_file_to_client(client_fd);
                 pthread_mutex_unlock(&file_mutex);
+
+                // Flush any remaining data that didn't end with a newline before exiting
+                if (packet_buf != NULL && packet_size > 0) {
+                    pthread_mutex_lock(&file_mutex);
+                    append_data_to_file(packet_buf, packet_size);
+                    send_file_to_client(client_fd);
+                    pthread_mutex_unlock(&file_mutex);
+                    }
+
+                if (packet_buf != NULL) free(packet_buf);
+                    close(client_fd);
+                    t_data->thread_complete_flag = true;
+                    return NULL;
                 
                 free(packet_buf);
                 packet_buf = NULL;
