@@ -128,6 +128,7 @@ void send_file_to_client(int client_fd) {
     close(read_fd);
 }
 
+
 void *handle_client(void *thread_param) {
     thread_data_t *t_data = (thread_data_t *)thread_param;
     int client_fd = t_data->client_sockfd;
@@ -137,7 +138,7 @@ void *handle_client(void *thread_param) {
 
     while (!caught_sig) {
         ssize_t bytes_recv = recv(client_fd, recv_buf, sizeof(recv_buf), 0);
-        if (bytes_recv <= 0) break;
+        if (bytes_recv <= 0) break; // Client disconnected or error
         
         char *ptr = recv_buf;
         size_t remaining = bytes_recv;
@@ -159,19 +160,7 @@ void *handle_client(void *thread_param) {
                 send_file_to_client(client_fd);
                 pthread_mutex_unlock(&file_mutex);
 
-                // Flush any remaining data that didn't end with a newline before exiting
-                if (packet_buf != NULL && packet_size > 0) {
-                    pthread_mutex_lock(&file_mutex);
-                    append_data_to_file(packet_buf, packet_size);
-                    send_file_to_client(client_fd);
-                    pthread_mutex_unlock(&file_mutex);
-                    }
-
-                if (packet_buf != NULL) free(packet_buf);
-                    close(client_fd);
-                    t_data->thread_complete_flag = true;
-                    return NULL;
-                
+                // Reset buffer for the next packet on this same connection
                 free(packet_buf);
                 packet_buf = NULL;
                 packet_size = 0;
@@ -190,6 +179,7 @@ void *handle_client(void *thread_param) {
         }
     }
     
+    // This is the ONLY place the thread should exit and close the socket!
     if (packet_buf != NULL) free(packet_buf);
     close(client_fd);
     t_data->thread_complete_flag = true;
