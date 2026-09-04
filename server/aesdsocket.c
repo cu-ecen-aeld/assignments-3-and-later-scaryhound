@@ -15,8 +15,16 @@
 #include <sys/queue.h>
 #include <time.h>
 
+
+#define USE_AESD_CHAR_DEVICE 1
+
+#if (USE_AESD_CHAR_DEVICE == 1)
+    #define DATA_FILE "/dev/aesdchar"
+#else
+    #define DATA_FILE "/var/tmp/aesdsocketdata"
+#endif
+
 #define PORT 9000
-#define DATA_FILE "/var/tmp/aesdsocketdata"
 #define BUFFER_SIZE 1024
 
 volatile sig_atomic_t caught_sig = 0;
@@ -81,7 +89,6 @@ int init_server_socket(void) {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
     
-
     int retries = 5;
     while (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         if (retries == 0) {
@@ -92,7 +99,6 @@ int init_server_socket(void) {
         retries--;
         sleep(1); 
     }
-
     
     if (listen(server_fd, 5) == -1) {
         close(server_fd);
@@ -101,7 +107,6 @@ int init_server_socket(void) {
     
     return server_fd;
 }
-
 
 void append_data_to_file(const char *data, size_t len) {
     int file_fd = open(DATA_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -127,7 +132,6 @@ void send_file_to_client(int client_fd) {
     }
     close(read_fd);
 }
-
 
 void *handle_client(void *thread_param) {
     thread_data_t *t_data = (thread_data_t *)thread_param;
@@ -186,6 +190,7 @@ void *handle_client(void *thread_param) {
     return NULL;
 }
 
+#if (USE_AESD_CHAR_DEVICE == 0)
 void *timestamp_thread(void *arg) {
     syslog(LOG_INFO, "Timestamp thread spawned and running.");
     while (!caught_sig) {
@@ -213,6 +218,7 @@ void *timestamp_thread(void *arg) {
     }
     return NULL;
 }
+#endif
 
 int main(int argc, char *argv[]) {
     bool run_as_daemon = false;
@@ -237,13 +243,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // --- Start Timer Thread ---
+#if (USE_AESD_CHAR_DEVICE == 0)
+    // --- Start Timer Thread (ONLY if using normal file) ---
     pthread_t timer_thread;
     if (pthread_create(&timer_thread, NULL, timestamp_thread, NULL) != 0) {
         syslog(LOG_ERR, "Failed to start timer thread!");
     } else {
         syslog(LOG_INFO, "Successfully created timer thread.");
     }
+#endif
 
     while (!caught_sig) {
         struct sockaddr_in client_addr;
@@ -268,24 +276,26 @@ int main(int argc, char *argv[]) {
 
         // Cleanup finished threads
         slist_data_t *curr = SLIST_FIRST(&head);
-            while (curr != NULL) {
-                // Save the next pointer BEFORE we potentially free 'curr'
-                slist_data_t *next = SLIST_NEXT(curr, entries);
+        while (curr != NULL) {
+            // Save the next pointer BEFORE we potentially free 'curr'
+            slist_data_t *next = SLIST_NEXT(curr, entries);
+            
+            if (curr->thread_param.thread_complete_flag) {
+                pthread_join(curr->thread_param.thread_id, NULL);
                 
-                if (curr->thread_param.thread_complete_flag) {
-                    pthread_join(curr->thread_param.thread_id, NULL);
-                    
-                    // Safely remove 'curr' from the list using the standard Linux macro
-                    SLIST_REMOVE(&head, curr, slist_data_s, entries);
-                    free(curr);
-                }
-                
-                curr = next;
+                // Safely remove 'curr' from the list
+                SLIST_REMOVE(&head, curr, slist_data_s, entries);
+                free(curr);
             }
+            
+            curr = next;
+        }
     } 
 
     // Final cleanup
+#if (USE_AESD_CHAR_DEVICE == 0)
     pthread_join(timer_thread, NULL);
+#endif
     
     slist_data_t *curr = SLIST_FIRST(&head);
     while (curr != NULL) {
@@ -297,7 +307,11 @@ int main(int argc, char *argv[]) {
 
     pthread_mutex_destroy(&file_mutex);
     close(server_fd);
+    
+#if (USE_AESD_CHAR_DEVICE == 0)
     remove(DATA_FILE);
+#endif
+    
     closelog();
     return 0;
 }
