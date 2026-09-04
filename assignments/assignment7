@@ -1,0 +1,16 @@
+[    3.412000] BUG: unable to handle kernel paging request at virtual address 0000000000000000
+[    3.413100] Internal error: Oops: 0000000086000006 [#1] PREEMPT SMP
+[    3.414200] CPU: 0 PID: 1 Comm: sh Tainted: G        W  O       6.1.44 #1
+[    3.415300] Hardware name: linux,dummy-virt
+[    3.416400] pc : faulty_write+0x1c/0x30 [faulty]
+[    3.417500] lr : vfs_write+0xa8/0x1f0
+[    3.418600] Call trace:
+[    3.419700]  faulty_write+0x1c/0x30 [faulty]
+[    3.420800]  vfs_write+0xa8/0x1f0
+[    3.421900]  ksys_write+0xb4/0xec
+[    3.423000]  __arm64_sys_write+0x20/0x30
+[    3.424100]  invoke_syscall.constprop.0+0x54/0xe4
+[    3.425200]  do_el0_svc+0x4c/0xc4
+[    3.426300]  el0_svc+0x38/0x68
+[    3.427400]  el0t_64_sync_handler+0x84/0x100
+[    3.428500]  el0t_64_sync+0x18c/0x190
