@@ -14,7 +14,7 @@
 #include <pthread.h>
 #include <sys/queue.h>
 #include <time.h>
-
+#include "../aesd-char-driver/aesd_ioctl.h"
 
 #define USE_AESD_CHAR_DEVICE 1
 
@@ -142,7 +142,7 @@ void *handle_client(void *thread_param) {
 
     while (!caught_sig) {
         ssize_t bytes_recv = recv(client_fd, recv_buf, sizeof(recv_buf), 0);
-        if (bytes_recv <= 0) break; // Client disconnected or error
+        if (bytes_recv <= 0) break; 
         
         char *ptr = recv_buf;
         size_t remaining = bytes_recv;
@@ -158,13 +158,38 @@ void *handle_client(void *thread_param) {
                 memcpy(packet_buf + packet_size, ptr, chunk_len);
                 packet_size += chunk_len;
                 
-                // --- Lock Mutex for File Operations ---
                 pthread_mutex_lock(&file_mutex);
-                append_data_to_file(packet_buf, packet_size);
-                send_file_to_client(client_fd);
+                
+                const char *ioctl_str = "AESDCHAR_IOCSEEKTO:";
+                int ioctl_str_len = strlen(ioctl_str);
+
+                if (strncmp(packet_buf, ioctl_str, ioctl_str_len) == 0) {
+                    int data_fd = open(DATA_FILE, O_RDWR);
+                    if (data_fd >= 0) {
+                        struct aesd_seekto seekto;
+                        if (sscanf(packet_buf + ioctl_str_len, "%u,%u", &seekto.write_cmd, &seekto.write_cmd_offset) == 2) {
+                            ioctl(data_fd, AESDCHAR_IOCSEEKTO, &seekto);
+                        }
+                        
+                        char send_buf[BUFFER_SIZE];
+                        ssize_t bytes_read;
+                        while ((bytes_read = read(data_fd, send_buf, sizeof(send_buf))) > 0) {
+                            ssize_t sent = 0;
+                            while (sent < bytes_read) {
+                                ssize_t s = send(client_fd, send_buf + sent, bytes_read - sent, 0);
+                                if (s == -1) break;
+                                sent += s;
+                            }
+                        }
+                        close(data_fd);
+                    }
+                } else {
+                    append_data_to_file(packet_buf, packet_size);
+                    send_file_to_client(client_fd);
+                }
+
                 pthread_mutex_unlock(&file_mutex);
 
-                // Reset buffer for the next packet on this same connection
                 free(packet_buf);
                 packet_buf = NULL;
                 packet_size = 0;
@@ -183,7 +208,6 @@ void *handle_client(void *thread_param) {
         }
     }
     
-    // This is the ONLY place the thread should exit and close the socket!
     if (packet_buf != NULL) free(packet_buf);
     close(client_fd);
     t_data->thread_complete_flag = true;
@@ -202,7 +226,7 @@ void *timestamp_thread(void *arg) {
 
         time_t t = time(NULL);
         struct tm tm_info;
-        localtime_r(&t, &tm_info); // Thread-safe time retrieval
+        localtime_r(&t, &tm_info); 
 
         char time_str[100];
         strftime(time_str, sizeof(time_str), "%a, %d %b %Y %T %z", &tm_info);
@@ -244,7 +268,6 @@ int main(int argc, char *argv[]) {
     }
 
 #if (USE_AESD_CHAR_DEVICE == 0)
-    // --- Start Timer Thread (ONLY if using normal file) ---
     pthread_t timer_thread;
     if (pthread_create(&timer_thread, NULL, timestamp_thread, NULL) != 0) {
         syslog(LOG_ERR, "Failed to start timer thread!");
@@ -274,16 +297,13 @@ int main(int argc, char *argv[]) {
         pthread_create(&new_node->thread_param.thread_id, NULL, handle_client, &new_node->thread_param);
         SLIST_INSERT_HEAD(&head, new_node, entries);
 
-        // Cleanup finished threads
         slist_data_t *curr = SLIST_FIRST(&head);
         while (curr != NULL) {
-            // Save the next pointer BEFORE we potentially free 'curr'
             slist_data_t *next = SLIST_NEXT(curr, entries);
             
             if (curr->thread_param.thread_complete_flag) {
                 pthread_join(curr->thread_param.thread_id, NULL);
                 
-                // Safely remove 'curr' from the list
                 SLIST_REMOVE(&head, curr, slist_data_s, entries);
                 free(curr);
             }
@@ -292,7 +312,6 @@ int main(int argc, char *argv[]) {
         }
     } 
 
-    // Final cleanup
 #if (USE_AESD_CHAR_DEVICE == 0)
     pthread_join(timer_thread, NULL);
 #endif
